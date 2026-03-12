@@ -7,7 +7,7 @@
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { background: #000; overflow: hidden; }
-  canvas { display: block; position: fixed; top: 0; left: 0; }
+  canvas { display: block; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; }
 </style>
 </head>
 <body>
@@ -16,39 +16,48 @@
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
 
+const DPR = window.devicePixelRatio || 1;
 let W, H;
+
 function resize() {
-  W = canvas.width = window.innerWidth;
-  H = canvas.height = window.innerHeight;
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width = W * DPR;
+  canvas.height = H * DPR;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.scale(DPR, DPR);
 }
 resize();
-window.addEventListener('resize', resize);
+window.addEventListener('resize', () => {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  resize();
+});
 
-// Lorenz params
 const sigma = 10, rho = 28, beta = 8/3;
-const dt = 0.005;
-const MAX_POINTS = 10000;
+const dt = 0.004;
+const MAX_POINTS = 18000;
 
 let points = [];
 let x = 0.1, y = 0, z = 0;
 let rotX = 0.4, rotY = 0.3;
 let isDragging = false, lastMX = 0, lastMY = 0;
-let zoom = 1.35;
+let zoom = 1.4;
 let autoRotate = true;
 
 const colorPalettes = [
-  { from: [0, 180, 255], to: [180, 0, 255] },
-  { from: [0, 255, 140], to: [0, 140, 255] },
-  { from: [255, 80, 0],  to: [255, 220, 0] },
-  { from: [255, 0, 120], to: [80, 0, 255] },
+  { from: [0, 180, 255], to: [200, 0, 255] },
+  { from: [0, 255, 140], to: [0, 120, 255] },
+  { from: [255, 70,  0], to: [255, 220, 0] },
+  { from: [255, 0, 110], to: [60,  0, 255] },
 ];
 let paletteIdx = 0;
 
 function lerpColor(a, b, t) {
   return [
-    Math.round(a[0] + (b[0]-a[0])*t),
-    Math.round(a[1] + (b[1]-a[1])*t),
-    Math.round(a[2] + (b[2]-a[2])*t),
+    a[0] + (b[0]-a[0])*t | 0,
+    a[1] + (b[1]-a[1])*t | 0,
+    a[2] + (b[2]-a[2])*t | 0,
   ];
 }
 
@@ -64,111 +73,105 @@ function stepLorenz() {
 
 function project(px, py, pz) {
   const cosY = Math.cos(rotY), sinY = Math.sin(rotY);
-  let rx = cosY * px + sinY * pz;
-  let ry = py;
-  let rz = -sinY * px + cosY * pz;
+  const rx = cosY * px + sinY * pz;
+  const ry = py;
+  const rz = -sinY * px + cosY * pz;
 
   const cosX = Math.cos(rotX), sinX = Math.sin(rotX);
-  let fy = cosX * ry - sinX * rz;
-  let fz = sinX * ry + cosX * rz;
+  const fy = cosX * ry - sinX * rz;
+  const fz = sinX * ry + cosX * rz;
 
-  const fov = 420 * zoom;
-  const scale = fov / (fz + 160 + 80);
+  const fov = 460 * zoom;
+  const scale = fov / (fz + 240);
   return [rx * scale + W/2, fy * scale + H/2, scale];
 }
 
-// Draw a single axis line from point a to b in 3D, with a small label
 function drawAxis(ax, ay, az, bx, by, bz, color, label) {
   const [sx, sy] = project(ax, ay, az);
   const [ex, ey] = project(bx, by, bz);
 
+  ctx.save();
   ctx.beginPath();
   ctx.moveTo(sx, sy);
   ctx.lineTo(ex, ey);
   ctx.strokeStyle = color;
-  ctx.lineWidth = 1.2;
-  ctx.setLineDash([6, 5]);
-  ctx.globalAlpha = 0.45;
+  ctx.lineWidth = 0.8;
+  ctx.setLineDash([5, 5]);
+  ctx.globalAlpha = 0.4;
   ctx.stroke();
   ctx.setLineDash([]);
-  ctx.globalAlpha = 1;
 
   // Arrowhead
   const angle = Math.atan2(ey - sy, ex - sx);
-  const alen = 8;
+  const al = 7;
   ctx.beginPath();
   ctx.moveTo(ex, ey);
-  ctx.lineTo(ex - alen * Math.cos(angle - 0.4), ey - alen * Math.sin(angle - 0.4));
-  ctx.lineTo(ex - alen * Math.cos(angle + 0.4), ey - alen * Math.sin(angle + 0.4));
+  ctx.lineTo(ex - al * Math.cos(angle - 0.38), ey - al * Math.sin(angle - 0.38));
+  ctx.lineTo(ex - al * Math.cos(angle + 0.38), ey - al * Math.sin(angle + 0.38));
   ctx.closePath();
   ctx.fillStyle = color;
-  ctx.globalAlpha = 0.55;
+  ctx.globalAlpha = 0.5;
   ctx.fill();
-  ctx.globalAlpha = 1;
 
-  // Label
-  ctx.font = '500 11px monospace';
+  ctx.font = '600 10px monospace';
   ctx.fillStyle = color;
-  ctx.globalAlpha = 0.65;
-  ctx.fillText(label, ex + 6, ey + 4);
-  ctx.globalAlpha = 1;
+  ctx.globalAlpha = 0.6;
+  ctx.fillText(label, ex + 5, ey + 4);
+  ctx.restore();
 }
 
 function drawAxes() {
-  const len = 28;
-  // X axis — red
-  drawAxis(-len, 0, 0,  len, 0, 0,  'rgba(255,80,80,1)', 'X');
-  // Y axis — green
-  drawAxis(0, -len, 0,  0, len, 0,  'rgba(80,255,140,1)', 'Y');
-  // Z axis — blue, but Z in lorenz is offset ~25 upward; center it
-  drawAxis(0, 0, -len,  0, 0, len,  'rgba(80,160,255,1)', 'Z');
+  const len = 30;
+  drawAxis(-len,0,0,  len,0,0,  'rgba(255,90,90,1)',   'X');
+  drawAxis(0,-len,0,  0,len,0,  'rgba(80,255,150,1)',  'Y');
+  drawAxis(0,0,-len,  0,0,len,  'rgba(80,160,255,1)',  'Z');
 }
 
 function draw() {
-  ctx.clearRect(0, 0, W, H);
-  ctx.fillStyle = 'rgba(0,0,0,0.2)';
+  // Fade trail
+  ctx.fillStyle = 'rgba(0,0,0,0.22)';
   ctx.fillRect(0, 0, W, H);
 
   drawAxes();
 
   const pal = colorPalettes[paletteIdx];
   const n = points.length;
+  if (n < 2) return;
 
+  // Batch draw by color segments for performance
   for (let i = 1; i < n; i++) {
     const t = i / n;
     const [r, g, b] = lerpColor(pal.from, pal.to, t);
-    const alpha = 0.1 + t * 0.9;
-    const [x1, y1] = project(...points[i-1]);
+    const alpha = 0.08 + t * 0.92;
+    const [x1, y1]     = project(...points[i-1]);
     const [x2, y2, s2] = project(...points[i]);
 
     ctx.beginPath();
     ctx.moveTo(x1, y1);
     ctx.lineTo(x2, y2);
     ctx.strokeStyle = `rgba(${r},${g},${b},${alpha})`;
-    ctx.lineWidth = Math.max(0.5, s2 * 0.65);
+    ctx.lineWidth = Math.max(0.4, s2 * 0.5);
     ctx.stroke();
   }
 
-  if (n > 0) {
-    const [hx, hy, hs] = project(...points[n-1]);
-    const [r, g, b] = pal.to;
-    ctx.beginPath();
-    ctx.arc(hx, hy, hs * 1.3, 0, Math.PI*2);
-    ctx.fillStyle = `rgba(${r},${g},${b},0.95)`;
-    ctx.shadowColor = `rgb(${r},${g},${b})`;
-    ctx.shadowBlur = 14;
-    ctx.fill();
-    ctx.shadowBlur = 0;
-  }
+  // Glowing head
+  const [hx, hy, hs] = project(...points[n-1]);
+  const [r, g, b] = pal.to;
+  ctx.save();
+  ctx.shadowColor = `rgb(${r},${g},${b})`;
+  ctx.shadowBlur = 18 * DPR;
+  ctx.beginPath();
+  ctx.arc(hx, hy, Math.max(1.5, hs * 1.2), 0, Math.PI*2);
+  ctx.fillStyle = `rgba(${r},${g},${b},0.95)`;
+  ctx.fill();
+  ctx.restore();
 }
 
-const STEPS_PER_FRAME = 7;
-
+const STEPS = 9;
 function animate() {
   requestAnimationFrame(animate);
-  if (autoRotate && !isDragging) rotY += 0.0022;
-
-  for (let i = 0; i < STEPS_PER_FRAME; i++) {
+  if (autoRotate && !isDragging) rotY += 0.002;
+  for (let i = 0; i < STEPS; i++) {
     points.push([...stepLorenz()]);
     if (points.length > MAX_POINTS) points.shift();
   }
@@ -179,27 +182,27 @@ canvas.addEventListener('mousedown', e => {
   isDragging = true; autoRotate = false;
   lastMX = e.clientX; lastMY = e.clientY;
 });
-window.addEventListener('mouseup', () => { isDragging = false; });
+window.addEventListener('mouseup', () => isDragging = false);
 window.addEventListener('mousemove', e => {
   if (!isDragging) return;
-  rotY += (e.clientX - lastMX) * 0.007;
-  rotX += (e.clientY - lastMY) * 0.007;
+  rotY += (e.clientX - lastMX) * 0.006;
+  rotX += (e.clientY - lastMY) * 0.006;
   lastMX = e.clientX; lastMY = e.clientY;
 });
 canvas.addEventListener('wheel', e => {
   zoom *= e.deltaY > 0 ? 0.93 : 1.07;
-  zoom = Math.max(0.3, Math.min(5, zoom));
+  zoom = Math.max(0.3, Math.min(6, zoom));
 }, { passive: true });
 
 canvas.addEventListener('touchstart', e => {
   isDragging = true; autoRotate = false;
   lastMX = e.touches[0].clientX; lastMY = e.touches[0].clientY;
 }, { passive: true });
-canvas.addEventListener('touchend', () => { isDragging = false; });
+canvas.addEventListener('touchend', () => isDragging = false);
 canvas.addEventListener('touchmove', e => {
   if (!isDragging) return;
-  rotY += (e.touches[0].clientX - lastMX) * 0.007;
-  rotX += (e.touches[0].clientY - lastMY) * 0.007;
+  rotY += (e.touches[0].clientX - lastMX) * 0.006;
+  rotX += (e.touches[0].clientY - lastMY) * 0.006;
   lastMX = e.touches[0].clientX; lastMY = e.touches[0].clientY;
 }, { passive: true });
 
